@@ -54,7 +54,7 @@ iroll: `in/sdk/rk3032`, `in/downloads`, `tmp/`, `logs/`. Параметры irol
 iboxed build --latest
 ```
 
-`--latest` сначала разрешает `main` **всех наших компонентов** в конкретные SHA,
+`--latest` сначала разрешает `main` **iroll, iman, IGUI и imanlib** в конкретные SHA,
 потом использует один снимок для всей матрицы. Рабочие сабмодули и закреплённые
 gitlinks не передвигаются. Сторонние RetroArch и ядра остаются закреплёнными
 рецептами выбранного iroll, а не обновляются до произвольных веток upstream.
@@ -73,7 +73,6 @@ gitlinks не передвигаются. Сторонние RetroArch и ядр
 iboxed-0.1.0-rk3032-standard.tar.gz
 iboxed-0.1.0-rk3032-diag.tar.gz
 iboxed-0.1.0-linux-x86_64-standard.tar.gz
-iboxed-0.1.0-rk3032-itrampoline_libretro.so
 release.json
 THIRD_PARTY.txt
 ```
@@ -87,10 +86,12 @@ BIOS, каталог, предпочтения и сохранения не вк
 а не полные тексты лицензий; это справочник, не заявление о полноте юридического аудита.
 Отдельные архивы исходников не формируются.
 
-Трамплин собирается один раз для всей RK3032-матрицы. Helper находится в
-`system/itrampoline`; libretro core — отдельный asset.
-Распаковка не подменяет штатное ядро и не изменяет `game/games.db`.
-Для встраивания используйте [инструкцию itrampoline](https://github.com/idleboxed/itrampoline/blob/main/docs/usage.md).
+Трамплин в комплект не входит. Для входа из штатного меню отдельно используйте
+[itrampoline](https://github.com/idleboxed/itrampoline/blob/main/docs/usage.md):
+он собирает core и helper, устанавливает `.so` под именем выбранного штатного
+ядра, создаёт запускатель и добавляет пункт в исходную `game/games.db`.
+Сабмодуль `components/itrampoline` оставлен для работы с этой отдельной утилитой;
+`iboxed build`, включая `--latest`, его не собирает и не обновляет.
 
 Сборщик работает только с временным каталогом ПК: SD/NOR не открывает,
 приложения и vendor ELF не запускает. Распаковку на карту выполняет владелец

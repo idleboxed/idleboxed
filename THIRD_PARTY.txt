@@ -3,7 +3,6 @@ Component | Licence | Source
 iman | BSD-3-Clause | https://github.com/idleboxed/iman
 IGUI | BSD-3-Clause | https://github.com/idleboxed/igui
 imanlib | BSD-3-Clause | https://github.com/idleboxed/imanlib
-itrampoline | BSD-3-Clause | https://github.com/idleboxed/itrampoline
 RetroArch | GPL-3.0-or-later | https://github.com/libretro/RetroArch
 Nestopia / nes_ntsc | GPL-2.0-or-later / LGPL-2.1-or-later | https://github.com/libretro/nestopia
 Gambatte | GPL-2.0-only | https://github.com/libretro/gambatte-libretro

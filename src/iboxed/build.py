@@ -16,7 +16,7 @@ from .config import BundleError
 from .process import run
 
 logger = logging.getLogger(__name__)
-COMPONENTS = ("iroll", "iman", "igui", "imanlib", "itrampoline")
+COMPONENTS = ("iroll", "iman", "igui", "imanlib")
 IROLL_SCRIPT = """
 import sys
 sys.path.insert(0, sys.argv[1])
@@ -46,7 +46,7 @@ def freeze_sources(root: Path, destination: Path, *, latest: bool) -> Iterator[d
             checkout = destination / name
             run(["git", "worktree", "add", "--detach", f"{checkout}", commit], cwd=root / "components" / name)
             created.append(name)
-            python = name in ("iroll", "itrampoline")
+            python = name == "iroll"
             manifest = checkout / ("pyproject.toml" if python else "Cargo.toml")
             package = tomllib.loads(manifest.read_text())["project" if python else "package"]
             sources[name] = {"commit": commit, "version": package["version"]}
@@ -87,7 +87,6 @@ def build_bundle(root: Path, config: dict[str, Any], *, latest: bool = False) ->
         source_root = stage / "sources"
         source_root.mkdir()
         builds = []
-        trampoline = None
 
         with freeze_sources(root, source_root, latest=latest) as sources:
 
@@ -98,7 +97,6 @@ def build_bundle(root: Path, config: dict[str, Any], *, latest: bool = False) ->
                     target = stage / f"{name}-{variant}"
                     target.mkdir()
                     destination = target / "sd"
-                    include_trampoline = name == "rk3032" and trampoline is None
                     source_package = source_root / "iroll/src"
                     argv = [
                         sys.executable, "-I", "-c", IROLL_SCRIPT, f"{source_package}", "rollout",
@@ -110,21 +108,9 @@ def build_bundle(root: Path, config: dict[str, Any], *, latest: bool = False) ->
                     if variant == "standard":
                         argv.append("--no-diag")
 
-                    if include_trampoline:
-                        argv.append("--with-itrampoline")
-
                     logger.info("Building %s/%s", name, variant)
                     response = json.loads(run(argv, cwd=root).stdout)
                     report = json.loads((Path(response["reports"]) / "result.json").read_text())
-
-                    if include_trampoline:
-                        trampoline = (destination / "system/itrampoline", report["components"]["itrampoline"])
-                        core = trampoline[1]["artifacts"]["core"]["path"]
-                        shutil.copyfile(core, assets / f"iboxed-{version}-rk3032-itrampoline_libretro.so")
-
-                    elif name == "rk3032":
-                        shutil.copy2(trampoline[0], destination / "system/itrampoline")
-                        report["components"]["itrampoline"] = trampoline[1]
 
                     archive = f"iboxed-{version}-{name}-{variant}.tar.gz"
 

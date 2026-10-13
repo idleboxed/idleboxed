@@ -98,7 +98,8 @@ def test_matrix_uses_frozen_commits_and_builds_trampoline_once(
     assert "internal-hash" not in (output / "release.json").read_text()
     assert "sha256" not in (output / "release.json").read_text()
     assert sorted(path.name for path in output.iterdir()) == manifest["assets"]
-    assert not list((tmp_path / "work").glob("bundle-*"))
+    assert all(flag not in argv for argv in rollouts for flag in ("--sdk", "--downloads", "--build-dir", "--jobs"))
+    assert not Path(rollouts[0][rollouts[0].index("--source") + 1]).exists()
     fetches = [index for index, argv in enumerate(commands["calls"]) if argv[:2] == ["git", "fetch"]]
     checkouts = [index for index, argv in enumerate(commands["calls"]) if argv[:3] == ["git", "worktree", "add"]]
     assert len(fetches) == (5 if latest else 0)
@@ -124,7 +125,8 @@ def test_partial_matrix_failure_cleans_worktrees_and_does_not_expose_a_bundle(
         build.build_bundle(tmp_path, config)
 
     assert not (tmp_path / "out/0.1.0").exists()
-    assert not list((tmp_path / "work").glob("bundle-*"))
+    checkout = next(Path(argv[-2]) for argv in commands["calls"] if argv[:3] == ["git", "worktree", "add"])
+    assert not checkout.parent.exists()
     assert len([argv for argv in commands["calls"] if argv[:3] == ["git", "worktree", "remove"]]) == 5
 
 

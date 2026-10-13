@@ -27,7 +27,3 @@ def read_config(root: Path) -> dict[str, Any]:
         raise BundleError("Supported targets: rk3032 standard/diag, linux-x86_64 standard")
 
     return config
-
-
-def get_path(root: Path, config: dict[str, Any], name: str) -> Path:
-    return (root / config["paths"][name]).resolve()

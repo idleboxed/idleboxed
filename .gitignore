@@ -7,4 +7,5 @@ uv.lock
 dist/
 in/
 out/
-work/
+tmp/
+logs/

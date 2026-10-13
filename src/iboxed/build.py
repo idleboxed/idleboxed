@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from .config import BundleError, get_path
+from .config import BundleError
 from .process import run
 
 logger = logging.getLogger(__name__)
@@ -69,7 +69,7 @@ def freeze_sources(root: Path, destination: Path, *, latest: bool) -> Iterator[d
 
 def build_bundle(root: Path, config: dict[str, Any], *, latest: bool = False) -> Path:
     version = config["version"]
-    output = get_path(root, config, "output") / version
+    output = root / "out" / version
 
     if output.exists():
         raise BundleError(f"Bundle already exists: {output}; choose a new version")
@@ -78,11 +78,9 @@ def build_bundle(root: Path, config: dict[str, Any], *, latest: bool = False) ->
         raise BundleError("Commit source and config changes before building")
 
     commit = run(["git", "rev-parse", "HEAD"], cwd=root).stdout.strip()
-    work = get_path(root, config, "work")
-    work.mkdir(parents=True, exist_ok=True)
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.TemporaryDirectory(prefix="bundle-", dir=work) as temporary:
+    with tempfile.TemporaryDirectory(prefix="iboxed-") as temporary:
         stage = Path(temporary)
         assets = stage / "assets"
         assets.mkdir()
@@ -102,19 +100,12 @@ def build_bundle(root: Path, config: dict[str, Any], *, latest: bool = False) ->
                     destination = target / "sd"
                     include_trampoline = name == "rk3032" and trampoline is None
                     source_package = source_root / "iroll/src"
-                    downloads = get_path(root, config, "downloads")
-                    build_directory = work / "build" / name
-                    jobs = config["jobs"]
                     argv = [
                         sys.executable, "-I", "-c", IROLL_SCRIPT, f"{source_package}", "rollout",
                         "--platform", name, "--source", f"{source_root}", "--dest", f"{destination}",
-                        "--bios", f"{target / "no-bios"}", "--downloads", f"{downloads}",
-                        "--build-dir", f"{build_directory}", "--logs_dir", f"{work / "logs"}",
-                        "--jobs", f"{jobs}", "--with-igui", "--with-iman", "--with-retro", "--with-cores", "--json",
+                        "--bios", f"{target / "no-bios"}",
+                        "--with-igui", "--with-iman", "--with-retro", "--with-cores", "--json",
                     ]
-
-                    if name == "rk3032":
-                        argv.extend(("--sdk", f"{get_path(root, config, "sdk")}"))
 
                     if variant == "standard":
                         argv.append("--no-diag")
@@ -123,7 +114,7 @@ def build_bundle(root: Path, config: dict[str, Any], *, latest: bool = False) ->
                         argv.append("--with-itrampoline")
 
                     logger.info("Building %s/%s", name, variant)
-                    response = json.loads(run(argv, cwd=target).stdout)
+                    response = json.loads(run(argv, cwd=root).stdout)
                     report = json.loads((Path(response["reports"]) / "result.json").read_text())
 
                     if include_trampoline:

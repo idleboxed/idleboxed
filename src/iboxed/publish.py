@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from .config import BundleError, get_path
+from .config import BundleError
 from .process import run
 
 logger = logging.getLogger(__name__)
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def publish_bundle(root: Path, config: dict[str, Any]) -> str:
     version = config["version"]
-    output = get_path(root, config, "output") / version
+    output = root / "out" / version
     manifest = json.loads((output / "release.json").read_text())
     commit = run(["git", "rev-parse", "HEAD"], cwd=root).stdout.strip()
 

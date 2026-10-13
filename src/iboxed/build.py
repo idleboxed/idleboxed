@@ -67,18 +67,30 @@ def freeze_sources(root: Path, destination: Path, *, latest: bool) -> Iterator[d
                 cwd=root / "components" / name)
 
 
-def build_bundle(root: Path, config: dict[str, Any], *, latest: bool = False) -> Path:
-    version = config["version"]
+def _validate_output(root: Path, version: str) -> Path:
+
+    if (not isinstance(version, str) or not version or version in (".", "..")
+            or Path(version).name != version or "\\" in version or "\x00" in version):
+        raise BundleError("Bundle version must be a single directory name")
+
     output = root / "out" / version
 
-    if output.exists():
-        raise BundleError(f"Bundle already exists: {output}; choose a new version")
+    for path in (output.parent, output):
+
+        if path.is_symlink() or (path.exists() and not path.is_dir()):
+            raise BundleError(f"Bundle output must be a directory, not a symlink or other file: {path}")
+
+    return output
+
+
+def build_bundle(root: Path, config: dict[str, Any], *, latest: bool = False) -> Path:
+    version = config["version"]
+    output = _validate_output(root, version)
 
     if run(["git", "status", "--porcelain"], cwd=root).stdout.strip():
         raise BundleError("Commit source and config changes before building")
 
     commit = run(["git", "rev-parse", "HEAD"], cwd=root).stdout.strip()
-    output.parent.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="iboxed-") as temporary:
         stage = Path(temporary)
@@ -89,6 +101,12 @@ def build_bundle(root: Path, config: dict[str, Any], *, latest: bool = False) ->
         builds = []
 
         with freeze_sources(root, source_root, latest=latest) as sources:
+            _validate_output(root, version)
+            output.parent.mkdir(parents=True, exist_ok=True)
+
+            if output.exists():
+                logger.info("Removing previous bundle: %s", output)
+                shutil.rmtree(output)
 
             for platform in config["platforms"]:
 
@@ -142,6 +160,11 @@ def build_bundle(root: Path, config: dict[str, Any], *, latest: bool = False) ->
             "assets": sorted([path.name for path in assets.iterdir()] + ["release.json"]),
         }
         (assets / "release.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        _validate_output(root, version)
+
+        if output.exists():
+            raise BundleError(f"Bundle output appeared during the build: {output}")
+
         shutil.move(assets, output)
 
     logger.info("Bundle ready: %s", output)

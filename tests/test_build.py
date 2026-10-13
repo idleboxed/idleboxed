@@ -1,4 +1,5 @@
 import json
+import logging
 import shutil
 import subprocess
 import tarfile
@@ -13,19 +14,26 @@ from iboxed.config import BundleError
 
 @pytest.fixture
 def commands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    state = {"calls": [], "failure": None, "builds": 0}
+    state = {
+        "calls": [], "failure": None, "builds": 0, "dirty": False,
+        "unavailable_source": None, "conflicting_output": None,
+    }
 
     def run(argv: list[str], *, cwd: Path, **kwargs: Any) -> subprocess.CompletedProcess[str]:
         state["calls"].append(argv)
         stdout = ""
 
         if argv[:2] == ["git", "status"]:
-            pass
+            stdout = " M config.toml\n" if state["dirty"] else ""
 
         elif argv[:2] == ["git", "fetch"]:
             pass
 
         elif argv[:2] == ["git", "rev-parse"]:
+
+            if cwd.name == state["unavailable_source"]:
+                raise BundleError("Synthetic source unavailable")
+
             stdout = "b" * 40 if argv[-1] == "FETCH_HEAD" else "a" * 40
 
         elif argv[:3] == ["git", "worktree", "add"]:
@@ -64,6 +72,11 @@ def commands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             (cwd / "result.json").write_text(json.dumps({"components": records}))
             stdout = json.dumps({"reports": f"{cwd}"})
 
+            if state["builds"] == 3 and state["conflicting_output"] is not None:
+                output = state["conflicting_output"]
+                output.mkdir()
+                (output / "marker.txt").write_text("Other build\n")
+
         else:
             raise AssertionError(f"Unexpected command: {argv}")
 
@@ -71,6 +84,17 @@ def commands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
     monkeypatch.setattr(build, "run", run)
     return state
+
+
+@pytest.fixture
+def previous_bundle(tmp_path: Path) -> Path:
+    output = tmp_path / "out/0.1.0"
+    (output / "system").mkdir(parents=True)
+    (output / "itrampoline_libretro.so").write_bytes(b"Synthetic old trampoline core")
+    (output / "system/itrampoline").write_bytes(b"Synthetic old helper")
+    (output / "obsolete.txt").write_text("Old extra asset\n")
+    (output / "release.json").write_text('{"version": "0.1.0", "old": true}\n')
+    return output
 
 
 @pytest.mark.parametrize("latest", [False, True])
@@ -112,24 +136,129 @@ def test_matrix_uses_frozen_commits_without_building_trampoline(
 
 
 @pytest.mark.parametrize("failure", [BundleError("Synthetic failure"), KeyboardInterrupt()])
-def test_partial_matrix_failure_cleans_worktrees_and_does_not_expose_a_bundle(
-    tmp_path: Path, config: dict[str, Any], commands: dict[str, Any], failure: BaseException,
+def test_failed_rebuild_cleans_worktrees_and_does_not_expose_the_previous_bundle(
+    tmp_path: Path, config: dict[str, Any], commands: dict[str, Any], previous_bundle: Path, failure: BaseException,
 ) -> None:
     commands["failure"] = failure
 
     with pytest.raises(type(failure), match="Synthetic failure" if isinstance(failure, BundleError) else "^$"):
         build.build_bundle(tmp_path, config)
 
-    assert not (tmp_path / "out/0.1.0").exists()
+    assert not previous_bundle.exists()
     checkout = next(Path(argv[-2]) for argv in commands["calls"] if argv[:3] == ["git", "worktree", "add"])
     assert not checkout.parent.exists()
     assert len([argv for argv in commands["calls"] if argv[:3] == ["git", "worktree", "remove"]]) == 4
 
 
-def test_existing_bundle_is_not_replaced(tmp_path: Path, config: dict[str, Any], commands: dict[str, Any]) -> None:
-    (tmp_path / "out/0.1.0").mkdir(parents=True)
+def test_rebuild_removes_all_previous_assets_and_preserves_other_versions(
+    tmp_path: Path, config: dict[str, Any], commands: dict[str, Any], previous_bundle: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    other_version = tmp_path / "out/0.0.9"
+    other_version.mkdir()
+    (other_version / "keep.txt").write_text("Keep this version\n")
+    (previous_bundle / "other-version").symlink_to(other_version, target_is_directory=True)
 
-    with pytest.raises(BundleError, match="already exists"):
+    with caplog.at_level(logging.INFO, logger="iboxed.build"):
+        output = build.build_bundle(tmp_path, config)
+
+    manifest = json.loads((output / "release.json").read_text())
+    assert output == previous_bundle
+    assert sorted(path.name for path in output.iterdir()) == manifest["assets"]
+    assert len(manifest["assets"]) == 5
+    assert not (output / "itrampoline_libretro.so").exists()
+    assert not (output / "system").exists()
+    assert not (output / "obsolete.txt").exists()
+    assert (other_version / "keep.txt").read_text() == "Keep this version\n"
+    assert f"Removing previous bundle: {output}" in caplog.text
+    assert commands["builds"] == 3
+
+
+def test_dirty_sources_are_rejected_before_removing_the_previous_bundle(
+    tmp_path: Path, config: dict[str, Any], commands: dict[str, Any], previous_bundle: Path,
+) -> None:
+    commands["dirty"] = True
+
+    with pytest.raises(BundleError, match="Commit source and config changes"):
         build.build_bundle(tmp_path, config)
 
+    assert (previous_bundle / "obsolete.txt").read_text() == "Old extra asset\n"
+    assert commands["builds"] == 0
+
+
+@pytest.mark.parametrize("source", ["", "iman"])
+def test_unavailable_sources_are_rejected_before_removing_the_previous_bundle(
+    tmp_path: Path, config: dict[str, Any], commands: dict[str, Any], previous_bundle: Path, source: str,
+) -> None:
+    commands["unavailable_source"] = (tmp_path / source).name
+
+    with pytest.raises(BundleError, match="Synthetic source unavailable"):
+        build.build_bundle(tmp_path, config)
+
+    assert (previous_bundle / "obsolete.txt").read_text() == "Old extra asset\n"
+    assert commands["builds"] == 0
+
+
+@pytest.mark.parametrize("version", [
+    "", ".", "..", "../0.1.0", "out/0.1.0", "0.1.0/", "/tmp/iboxed-unsafe", "..\\0.1.0", "0.1.0\x00", 0, None,
+])
+def test_unsafe_version_is_rejected_without_removing_any_output(
+    tmp_path: Path, config: dict[str, Any], commands: dict[str, Any], previous_bundle: Path, version: object,
+) -> None:
+    config["version"] = version
+
+    with pytest.raises(BundleError, match="single directory name"):
+        build.build_bundle(tmp_path, config)
+
+    assert (previous_bundle / "obsolete.txt").read_text() == "Old extra asset\n"
     assert not commands["calls"]
+
+
+@pytest.mark.parametrize("location", ["out", "out/0.1.0"])
+@pytest.mark.parametrize("target", ["outside", "missing"])
+def test_symlink_output_is_rejected_without_touching_its_target(
+    tmp_path: Path, config: dict[str, Any], commands: dict[str, Any], location: str, target: str,
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("Keep outside data\n")
+    link = tmp_path / location
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(tmp_path / target, target_is_directory=True)
+
+    with pytest.raises(BundleError, match="not a symlink"):
+        build.build_bundle(tmp_path, config)
+
+    assert link.is_symlink()
+    assert (outside / "keep.txt").read_text() == "Keep outside data\n"
+    assert not commands["calls"]
+
+
+@pytest.mark.parametrize("location", ["out", "out/0.1.0"])
+def test_file_output_is_rejected_without_removing_it(
+    tmp_path: Path, config: dict[str, Any], commands: dict[str, Any], location: str,
+) -> None:
+    output = tmp_path / location
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text("Unrelated file\n")
+
+    with pytest.raises(BundleError, match="must be a directory"):
+        build.build_bundle(tmp_path, config)
+
+    assert output.read_text() == "Unrelated file\n"
+    assert not commands["calls"]
+
+
+def test_output_created_during_build_is_not_mixed_with_the_new_bundle(
+    tmp_path: Path, config: dict[str, Any], commands: dict[str, Any],
+) -> None:
+    output = tmp_path / "out/0.1.0"
+    commands["conflicting_output"] = output
+
+    with pytest.raises(BundleError, match="output appeared during the build"):
+        build.build_bundle(tmp_path, config)
+
+    assert [path.name for path in output.iterdir()] == ["marker.txt"]
+    assert (output / "marker.txt").read_text() == "Other build\n"
+    checkout = next(Path(argv[-2]) for argv in commands["calls"] if argv[:3] == ["git", "worktree", "add"])
+    assert not checkout.parent.exists()

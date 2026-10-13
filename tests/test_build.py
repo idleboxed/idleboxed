@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import tarfile
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import pytest
 
@@ -59,7 +59,10 @@ def commands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
             destination = Path(argv[argv.index("--dest") + 1])
             (destination / "system/iman").mkdir(parents=True)
-            (destination / "system/iman/iman").write_bytes(b"Synthetic binary, not executable")
+            platform = argv[argv.index("--platform") + 1]
+            variant = "standard" if "--no-diag" in argv else "diag"
+            binary = f"Synthetic {platform}/{variant} binary, not executable".encode()
+            (destination / "system/iman/iman").write_bytes(binary)
             (destination / "INSTRUCTIONS.md").write_text("Synthetic guide\n")
 
             for directory in ("games/states", "games/saves"):
@@ -93,6 +96,7 @@ def previous_bundle(tmp_path: Path) -> Path:
     (output / "itrampoline_libretro.so").write_bytes(b"Synthetic old trampoline core")
     (output / "system/itrampoline").write_bytes(b"Synthetic old helper")
     (output / "obsolete.txt").write_text("Old extra asset\n")
+    (output / "THIRD_PARTY.txt").write_text("Old release notice\n")
     (output / "release.json").write_text('{"version": "0.1.0", "old": true}\n')
     return output
 
@@ -114,7 +118,7 @@ def test_matrix_uses_frozen_commits_without_building_trampoline(
     assert "sha256" not in (output / "release.json").read_text()
     assert sorted(path.name for path in output.iterdir()) == manifest["assets"]
     assert manifest["assets"] == sorted([
-        "THIRD_PARTY.txt", "release.json",
+        "release.json",
         "iboxed-0.1.0-rk3032-standard.tar.gz", "iboxed-0.1.0-rk3032-diag.tar.gz",
         "iboxed-0.1.0-linux-x86_64-standard.tar.gz",
     ])
@@ -129,7 +133,13 @@ def test_matrix_uses_frozen_commits_without_building_trampoline(
 
         with tarfile.open(output / target["archive"]) as archive:
             names = archive.getnames()
-            assert "THIRD_PARTY.txt" in names
+            assert len(names) == len(set(names))
+            assert "THIRD_PARTY.txt" not in names
+            assert "release.json" not in names
+            assert archive.extractfile("system/release.json").read() == (output / "release.json").read_bytes()
+            assert archive.extractfile("system/THIRD_PARTY.txt").read() == (tmp_path / "THIRD_PARTY.txt").read_bytes()
+            expected_binary = f"Synthetic {target['platform']}/{target['variant']} binary, not executable".encode()
+            assert archive.extractfile("system/iman/iman").read() == expected_binary
             assert "games/states" in names
             assert "system/itrampoline" not in names
             assert not any(name.startswith("system/bios") or name == "prefs.json" for name in names)
@@ -150,6 +160,27 @@ def test_failed_rebuild_cleans_worktrees_and_does_not_expose_the_previous_bundle
     assert len([argv for argv in commands["calls"] if argv[:3] == ["git", "worktree", "remove"]]) == 4
 
 
+@pytest.mark.parametrize("failure", [OSError("Synthetic packaging failure"), KeyboardInterrupt()])
+def test_failed_packaging_does_not_expose_a_bundle(
+    tmp_path: Path, config: dict[str, Any], commands: dict[str, Any], previous_bundle: Path,
+    monkeypatch: pytest.MonkeyPatch, failure: BaseException,
+) -> None:
+    def reject_archive(*args: Any, **kwargs: Any) -> NoReturn:
+        raise failure
+
+    monkeypatch.setattr(build.tarfile, "open", reject_archive)
+    message = "Synthetic packaging failure" if isinstance(failure, OSError) else "^$"
+
+    with pytest.raises(type(failure), match=message):
+        build.build_bundle(tmp_path, config)
+
+    assert not previous_bundle.exists()
+    assert commands["builds"] == 3
+    checkout = next(Path(argv[-2]) for argv in commands["calls"] if argv[:3] == ["git", "worktree", "add"])
+    assert not checkout.parent.exists()
+    assert len([argv for argv in commands["calls"] if argv[:3] == ["git", "worktree", "remove"]]) == 4
+
+
 def test_rebuild_removes_all_previous_assets_and_preserves_other_versions(
     tmp_path: Path, config: dict[str, Any], commands: dict[str, Any], previous_bundle: Path,
     caplog: pytest.LogCaptureFixture,
@@ -165,7 +196,7 @@ def test_rebuild_removes_all_previous_assets_and_preserves_other_versions(
     manifest = json.loads((output / "release.json").read_text())
     assert output == previous_bundle
     assert sorted(path.name for path in output.iterdir()) == manifest["assets"]
-    assert len(manifest["assets"]) == 5
+    assert len(manifest["assets"]) == 4
     assert not (output / "itrampoline_libretro.so").exists()
     assert not (output / "system").exists()
     assert not (output / "obsolete.txt").exists()

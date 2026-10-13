@@ -130,15 +130,6 @@ def build_bundle(root: Path, config: dict[str, Any], *, latest: bool = False) ->
                     response = json.loads(run(argv, cwd=root).stdout)
                     report = json.loads((Path(response["reports"]) / "result.json").read_text())
 
-                    archive = f"iboxed-{version}-{name}-{variant}.tar.gz"
-
-                    with tarfile.open(assets / archive, "w:gz") as package:
-
-                        for relative in ("system", "INSTRUCTIONS.md", "games/states", "games/saves"):
-                            package.add(destination / relative, arcname=relative)
-
-                        package.add(root / "THIRD_PARTY.txt", arcname="THIRD_PARTY.txt")
-
                     components = {
                         component: {
                             "source": {key: value for key, value in record["source"].items() if key != "sha256"},
@@ -149,17 +140,32 @@ def build_bundle(root: Path, config: dict[str, Any], *, latest: bool = False) ->
                     }
                     shader = report.get("bundled_shader_source", {})
                     builds.append({
-                        "platform": name, "variant": variant, "archive": archive, "components": components,
+                        "platform": name, "variant": variant,
+                        "archive": f"iboxed-{version}-{name}-{variant}.tar.gz", "components": components,
                         "shader": {key: shader[key] for key in ("repository", "revision") if key in shader},
                     })
 
-        shutil.copyfile(root / "THIRD_PARTY.txt", assets / "THIRD_PARTY.txt")
         manifest = {
             "version": version, "integration_commit": commit, "config": config,
             "mode": "latest" if latest else "pinned", "sources": sources, "builds": builds,
-            "assets": sorted([path.name for path in assets.iterdir()] + ["release.json"]),
+            "assets": sorted([record["archive"] for record in builds] + ["release.json"]),
         }
-        (assets / "release.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        manifest_path = assets / "release.json"
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+        for record in builds:
+            destination = stage / f"{record['platform']}-{record['variant']}" / "sd"
+            archive = record["archive"]
+            logger.info("Packaging %s", archive)
+
+            with tarfile.open(assets / archive, "w:gz") as package:
+
+                for relative in ("system", "INSTRUCTIONS.md", "games/states", "games/saves"):
+                    package.add(destination / relative, arcname=relative)
+
+                package.add(manifest_path, arcname="system/release.json")
+                package.add(root / "THIRD_PARTY.txt", arcname="system/THIRD_PARTY.txt")
+
         _validate_output(root, version)
 
         if output.exists():

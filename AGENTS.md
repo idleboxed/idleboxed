@@ -9,6 +9,9 @@
 Трамплин собирает и устанавливает только самостоятельный itrampoline;
 в сборку iboxed и его архивы core/helper не входят.
 
+Каждый архив содержит `system/release.json` и `system/THIRD_PARTY.txt`.
+Внешний `release.json` нужен для публикации; отдельного asset `THIRD_PARTY.txt` нет.
+
 Согласованный CLI: `iboxed build [--latest]`, `iboxed publish`.
 Новые команды и параметры сначала согласовать с владельцем.
 

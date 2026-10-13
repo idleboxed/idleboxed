@@ -1,0 +1,17 @@
+# Version of the complete bundle, not of an individual component.
+version = "0.1.0"
+jobs = 4
+
+[paths]
+work = "work"
+output = "out"
+downloads = "in/downloads"
+sdk = "in/sdk/rk3032"
+
+[[platforms]]
+name = "rk3032"
+variants = ["standard", "diag"]
+
+[[platforms]]
+name = "linux-x86_64"
+variants = ["standard"]

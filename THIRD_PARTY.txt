@@ -1,0 +1,17 @@
+Component | Licence | Source
+
+iman | BSD-3-Clause | https://github.com/idleboxed/iman
+IGUI | BSD-3-Clause | https://github.com/idleboxed/igui
+imanlib | BSD-3-Clause | https://github.com/idleboxed/imanlib
+itrampoline | BSD-3-Clause | https://github.com/idleboxed/itrampoline
+RetroArch | GPL-3.0-or-later | https://github.com/libretro/RetroArch
+Nestopia / nes_ntsc | GPL-2.0-or-later / LGPL-2.1-or-later | https://github.com/libretro/nestopia
+Gambatte | GPL-2.0-only | https://github.com/libretro/gambatte-libretro
+Snes9x2010 | Snes9x custom non-commercial licence | https://github.com/libretro/snes9x2010
+gpSP / built-in open BIOS | GPL-2.0-or-later / GPL | https://github.com/libretro/gpsp
+PicoDrive | Custom non-commercial / mixed component licences | https://github.com/libretro/picodrive
+PCSX ReARMed | GPL-2.0-or-later / component notices | https://github.com/libretro/pcsx_rearmed
+Mupen64Plus-Next (RK3032) | GPL-2.0 family / LGPL, MIT, BSD notices | https://github.com/libretro/mupen64plus-libretro-nx
+sharp-bilinear-simple shader | Public domain | https://github.com/libretro/glsl-shaders
+embedded-graphics | MIT OR Apache-2.0 | https://github.com/embedded-graphics/embedded-graphics
+FONT_7X13 / FONT_10X20 | Public domain (Xorg fonts) | https://github.com/embedded-graphics/embedded-graphics/tree/master/fonts

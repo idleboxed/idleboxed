@@ -1,0 +1,15 @@
+[submodule "components/iroll"]
+	path = components/iroll
+	url = https://github.com/idleboxed/iroll.git
+[submodule "components/iman"]
+	path = components/iman
+	url = https://github.com/idleboxed/iman.git
+[submodule "components/igui"]
+	path = components/igui
+	url = https://github.com/idleboxed/igui.git
+[submodule "components/imanlib"]
+	path = components/imanlib
+	url = https://github.com/idleboxed/imanlib.git
+[submodule "components/itrampoline"]
+	path = components/itrampoline
+	url = https://github.com/idleboxed/itrampoline.git

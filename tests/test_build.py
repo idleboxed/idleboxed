@@ -17,6 +17,7 @@ def commands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     state = {
         "calls": [], "failure": None, "builds": 0, "dirty": False,
         "unavailable_source": None, "conflicting_output": None,
+        "cleanup_failures": {},
     }
 
     def run(argv: list[str], *, cwd: Path, **kwargs: Any) -> subprocess.CompletedProcess[str]:
@@ -41,14 +42,18 @@ def commands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             checkout.mkdir()
             python = checkout.name == "iroll"
             (checkout / ("pyproject.toml" if python else "Cargo.toml")).write_text(
-                f'[{"project" if python else "package"}]\nversion = "0.1.0"\n'
+                f"[{"project" if python else "package"}]\nversion = \"0.1.0\"\n"
             )
             (checkout / "Cargo.lock").write_text(
-                '[[package]]\nname = "imanlib"\nversion = "0.1.0"\n'
-                f'source = "git+https://github.com/idleboxed/imanlib.git#{"c" * 40}"\n'
+                "[[package]]\nname = \"imanlib\"\nversion = \"0.1.0\"\n"
+                f"source = \"git+https://github.com/idleboxed/imanlib.git#{"c" * 40}\"\n"
             )
 
         elif argv[:3] == ["git", "worktree", "remove"]:
+
+            if failure := state["cleanup_failures"].get(Path(argv[-1]).name):
+                raise failure
+
             shutil.rmtree(argv[-1])
 
         elif "rollout" in argv:
@@ -97,7 +102,7 @@ def previous_bundle(tmp_path: Path) -> Path:
     (output / "system/itrampoline").write_bytes(b"Synthetic old helper")
     (output / "obsolete.txt").write_text("Old extra asset\n")
     (output / "THIRD_PARTY.txt").write_text("Old release notice\n")
-    (output / "release.json").write_text('{"version": "0.1.0", "old": true}\n')
+    (output / "release.json").write_text("{\"version\": \"0.1.0\", \"old\": true}\n")
     return output
 
 
@@ -138,7 +143,7 @@ def test_matrix_uses_frozen_commits_without_building_trampoline(
             assert "release.json" not in names
             assert archive.extractfile("system/release.json").read() == (output / "release.json").read_bytes()
             assert archive.extractfile("system/THIRD_PARTY.txt").read() == (tmp_path / "THIRD_PARTY.txt").read_bytes()
-            expected_binary = f"Synthetic {target['platform']}/{target['variant']} binary, not executable".encode()
+            expected_binary = f"Synthetic {target["platform"]}/{target["variant"]} binary, not executable".encode()
             assert archive.extractfile("system/iman/iman").read() == expected_binary
             assert "games/states" in names
             assert "system/itrampoline" not in names
@@ -158,6 +163,53 @@ def test_failed_rebuild_cleans_worktrees_and_does_not_expose_the_previous_bundle
     checkout = next(Path(argv[-2]) for argv in commands["calls"] if argv[:3] == ["git", "worktree", "add"])
     assert not checkout.parent.exists()
     assert len([argv for argv in commands["calls"] if argv[:3] == ["git", "worktree", "remove"]]) == 4
+
+
+@pytest.mark.parametrize("failure", [
+    pytest.param(None, id="cleanup-only"),
+    pytest.param(BundleError("Synthetic build failure"), id="build-error"),
+    pytest.param(KeyboardInterrupt("Synthetic cancellation"), id="cancelled"),
+])
+def test_cleanup_attempts_all_worktrees_and_preserves_the_primary_error(
+    tmp_path: Path, commands: dict[str, Any], caplog: pytest.LogCaptureFixture, failure: BaseException | None,
+) -> None:
+    removal_error = BundleError("Synthetic removal failure")
+    commands["cleanup_failures"] = {"imanlib": removal_error, "iman": BundleError("Other removal failure")}
+    expected = failure or removal_error
+
+    message = f"{expected}"
+
+    with caplog.at_level(logging.ERROR, logger="iboxed.build"), pytest.raises(type(expected), match=message) as raised:
+
+        with build.freeze_sources(tmp_path, tmp_path, latest=False):
+
+            if failure is not None:
+                raise failure
+
+    assert raised.value is expected
+    removed = [Path(argv[-1]).name for argv in commands["calls"] if argv[:3] == ["git", "worktree", "remove"]]
+    assert removed == list(reversed(build.COMPONENTS))
+    assert "Synthetic removal failure" in caplog.text
+    assert "Other removal failure" in caplog.text
+    assert not (tmp_path / "igui").exists()
+    assert not (tmp_path / "iroll").exists()
+    assert "Other removal failure" in "\n".join(raised.value.__notes__)
+
+
+def test_cancellation_during_cleanup_still_attempts_remaining_worktrees(
+    tmp_path: Path, commands: dict[str, Any],
+) -> None:
+    cancelled = KeyboardInterrupt()
+    commands["cleanup_failures"] = {"imanlib": cancelled}
+
+    with pytest.raises(KeyboardInterrupt) as raised:
+
+        with build.freeze_sources(tmp_path, tmp_path, latest=False):
+            pass
+
+    assert raised.value is cancelled
+    removed = [Path(argv[-1]).name for argv in commands["calls"] if argv[:3] == ["git", "worktree", "remove"]]
+    assert removed == list(reversed(build.COMPONENTS))
 
 
 @pytest.mark.parametrize("failure", [OSError("Synthetic packaging failure"), KeyboardInterrupt()])

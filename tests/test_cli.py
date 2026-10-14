@@ -33,9 +33,9 @@ def test_approved_commands_are_separate(
 
 
 @pytest.mark.parametrize("old,new", [
-    ('version = "0.1.0"', 'version = "../escape"'),
-    ('name = "linux-x86_64"\nvariants = ["standard"]', 'name = "linux-x86_64"\nvariants = ["diag"]'),
-    ('variants = ["standard", "diag"]', 'variants = ["standard", "standard"]'),
+    ("version = \"0.1.0\"", "version = \"../escape\""),
+    ("name = \"linux-x86_64\"\nvariants = [\"standard\"]", "name = \"linux-x86_64\"\nvariants = [\"diag\"]"),
+    ("variants = [\"standard\", \"diag\"]", "variants = [\"standard\", \"standard\"]"),
 ])
 def test_invalid_config_fails_before_building(tmp_path: Path, config: dict[str, Any], old: str, new: str) -> None:
     path = tmp_path / "config.toml"

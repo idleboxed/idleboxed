@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the selected bundle command and return its exit code."""
     parser = argparse.ArgumentParser(prog="iboxed", description="Build and publish Idle bundles")
     commands = parser.add_subparsers(dest="command", required=True)
     build = commands.add_parser("build", help="Build config.toml from pinned components")

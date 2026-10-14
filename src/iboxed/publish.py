@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def publish_bundle(root: Path, config: dict[str, Any]) -> str:
+    """Upload the validated bundle to its GitHub release and return the release URL."""
     version = config["version"]
     output = root / "out" / version
     manifest = json.loads((output / "release.json").read_text())

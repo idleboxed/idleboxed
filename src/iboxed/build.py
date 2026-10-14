@@ -27,6 +27,7 @@ raise SystemExit(main(sys.argv[2:]))
 
 @contextmanager
 def freeze_sources(root: Path, destination: Path, *, latest: bool) -> Iterator[dict[str, Any]]:
+    """Check out fixed component revisions and remove every checkout on exit."""
     revisions = {}
 
     for name in COMPONENTS:
@@ -39,6 +40,7 @@ def freeze_sources(root: Path, destination: Path, *, latest: bool) -> Iterator[d
         revisions[name] = run(["git", "rev-parse", ref], cwd=source).stdout.strip()
 
     created = []
+    primary_error: BaseException | None = None
     try:
         sources = {}
 
@@ -60,11 +62,35 @@ def freeze_sources(root: Path, destination: Path, *, latest: bool) -> Iterator[d
 
         yield sources
 
+    except BaseException as error:
+        primary_error = error
+        raise
+
     finally:
+        cleanup_errors = []
 
         for name in reversed(created):
-            run(["git", "worktree", "remove", "--force", f"{destination / name}"],
-                cwd=root / "components" / name)
+            checkout = destination / name
+            try:
+                run(["git", "worktree", "remove", "--force", f"{checkout}"], cwd=root / "components" / name)
+
+            except BaseException as error:
+                # A failed removal must not leave later worktrees unattempted,
+                # nor replace the build error or cancellation that brought us here.
+                detail = f"Could not remove worktree {checkout}: {error}"
+                logger.error("%s", detail)
+                cleanup_errors.append(error)
+
+                if primary_error is not None:
+                    primary_error.add_note(detail)
+
+        if cleanup_errors and primary_error is None:
+            first_error = cleanup_errors[0]
+
+            for error in cleanup_errors[1:]:
+                first_error.add_note(f"Additional worktree cleanup failure: {error}")
+
+            raise first_error
 
 
 def _validate_output(root: Path, version: str) -> Path:
@@ -84,6 +110,7 @@ def _validate_output(root: Path, version: str) -> Path:
 
 
 def build_bundle(root: Path, config: dict[str, Any], *, latest: bool = False) -> Path:
+    """Build each configured variant and publish its archives only after packaging succeeds."""
     version = config["version"]
     output = _validate_output(root, version)
 
@@ -154,7 +181,7 @@ def build_bundle(root: Path, config: dict[str, Any], *, latest: bool = False) ->
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
         for record in builds:
-            destination = stage / f"{record['platform']}-{record['variant']}" / "sd"
+            destination = stage / f"{record["platform"]}-{record["variant"]}" / "sd"
             archive = record["archive"]
             logger.info("Packaging %s", archive)
 

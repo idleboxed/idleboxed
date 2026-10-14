@@ -9,6 +9,7 @@ from .config import BundleError
 
 
 def run(argv: list[str], *, cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
+    """Run a command, capture its output and stop its process group on cancellation."""
 
     with subprocess.Popen(
         argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,

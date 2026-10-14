@@ -11,6 +11,7 @@ class BundleError(Exception):
 
 
 def read_config(root: Path) -> dict[str, Any]:
+    """Read config.toml and reject invalid versions, platforms or variants."""
     config = tomllib.loads((root / "config.toml").read_text(encoding="utf-8"))
     version = config.get("version", "")
 

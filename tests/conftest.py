@@ -21,9 +21,9 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def config(tmp_path: Path) -> dict[str, Any]:
     content = (
-        'version = "0.1.0"\n'
-        '[[platforms]]\nname = "rk3032"\nvariants = ["standard", "diag"]\n'
-        '[[platforms]]\nname = "linux-x86_64"\nvariants = ["standard"]\n'
+        "version = \"0.1.0\"\n"
+        "[[platforms]]\nname = \"rk3032\"\nvariants = [\"standard\", \"diag\"]\n"
+        "[[platforms]]\nname = \"linux-x86_64\"\nvariants = [\"standard\"]\n"
     )
     (tmp_path / "config.toml").write_text(content)
     (tmp_path / "THIRD_PARTY.txt").write_text("Synthetic short licence reference\n")
